@@ -1,0 +1,32 @@
+name: ChatSync
+version: 1.0.0
+main: com.github.chatsync.ChatSync
+api-version: "1.21"
+description: Синхронизатор чата Minecraft и Telegram с поддержкой EssentialsX
+author: gordey9992 & DeepSeek
+website: https://github.com/gordey9992
+prefix: "ChatSync"
+
+commands:
+  chatsync:
+    description: Основная команда ChatSync
+    usage: /chatsync <reload|status|help>
+    permission: chatsync.use
+    aliases: [cs, синхчат]
+
+permissions:
+  chatsync.*:
+    description: Все разрешения ChatSync
+    children:
+      chatsync.use: true
+      chatsync.reload: true
+      chatsync.status: true
+  chatsync.use:
+    description: Использование основных команд
+    default: true
+  chatsync.reload:
+    description: Перезагрузка конфигурации
+    default: op
+  chatsync.status:
+    description: Просмотр статуса плагина
+    default: true

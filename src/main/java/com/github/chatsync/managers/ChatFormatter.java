@@ -1,7 +1,5 @@
 package com.github.chatsync.managers;
 
-import net.ess3.api.IUser;
-import net.ess3.api.events.NickChangeEvent;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
@@ -26,22 +24,134 @@ public class ChatFormatter {
     }
     
     /**
-     * Получает префикс игрока из EssentialsX
+     * Получает префикс игрока из EssentialsX или Vault
      */
     public static String getPlayerPrefix(Player player) {
         try {
-            // Пытаемся получить префикс через EssentialsX
-            IUser user = (IUser) player; // EssentialsX API
-            String prefix = user.getPrefix();
-            return prefix != null ? cleanMinecraftFormatting(prefix) : "";
+            // Способ 1: Через Vault API (если установлен)
+            if (hasVault()) {
+                net.milkbowl.vault.chat.Chat chat = getVaultChat();
+                if (chat != null) {
+                    String prefix = chat.getPlayerPrefix(player);
+                    if (prefix != null && !prefix.trim().isEmpty()) {
+                        return cleanMinecraftFormatting(prefix);
+                    }
+                }
+            }
+            
+            // Способ 2: Через EssentialsX напрямую
+            if (hasEssentials()) {
+                // EssentialsX хранит префиксы в метаданных или конфигурации
+                // Попробуем получить из display name
+                String displayName = player.getDisplayName();
+                if (!displayName.equals(player.getName())) {
+                    // Если есть кастомный display name, может содержать префикс
+                    return extractPrefixFromDisplayName(displayName, player.getName());
+                }
+            }
+            
+            // Способ 3: Из разрешений (LuckPerms и т.д.)
+            return getPrefixFromPermissions(player);
+            
         } catch (Exception e) {
-            // Если EssentialsX не доступен, возвращаем пустую строку
+            // Если ничего не работает, возвращаем пустую строку
             return "";
         }
     }
     
     /**
-     * Получает никнейм игрока с учетом EssentialsX
+     * Проверяет наличие Vault
+     */
+    private static boolean hasVault() {
+        try {
+            Class.forName("net.milkbowl.vault.chat.Chat");
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Получает Vault Chat provider
+     */
+    private static net.milkbowl.vault.chat.Chat getVaultChat() {
+        try {
+            org.bukkit.plugin.RegisteredServiceProvider<net.milkbowl.vault.chat.Chat> rsp = 
+                org.bukkit.Bukkit.getServer().getServicesManager().getRegistration(net.milkbowl.vault.chat.Chat.class);
+            return rsp != null ? rsp.getProvider() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
+    /**
+     * Проверяет наличие EssentialsX
+     */
+    private static boolean hasEssentials() {
+        try {
+            Class.forName("com.earth2me.essentials.Essentials");
+            return org.bukkit.Bukkit.getPluginManager().getPlugin("Essentials") != null;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Извлекает префикс из display name
+     */
+    private static String extractPrefixFromDisplayName(String displayName, String playerName) {
+        String cleanDisplayName = cleanMinecraftFormatting(displayName);
+        String cleanPlayerName = cleanMinecraftFormatting(playerName);
+        
+        if (cleanDisplayName.contains(cleanPlayerName)) {
+            int nameIndex = cleanDisplayName.indexOf(cleanPlayerName);
+            if (nameIndex > 0) {
+                String potentialPrefix = cleanDisplayName.substring(0, nameIndex).trim();
+                // Убираем возможные скобки и пробелы
+                potentialPrefix = potentialPrefix.replaceAll("[\\[\\]()]", "").trim();
+                if (!potentialPrefix.isEmpty()) {
+                    return potentialPrefix;
+                }
+            }
+        }
+        
+        return "";
+    }
+    
+    /**
+     * Получает префикс из системы разрешений
+     */
+    private static String getPrefixFromPermissions(Player player) {
+        try {
+            // Проверяем метаданные игрока
+            for (org.bukkit.metadata.MetadataValue meta : player.getMetadata("prefix")) {
+                if (meta != null && meta.value() instanceof String) {
+                    String prefix = (String) meta.value();
+                    if (!prefix.trim().isEmpty()) {
+                        return cleanMinecraftFormatting(prefix);
+                    }
+                }
+            }
+            
+            // Проверяем метаданные от плагинов
+            for (org.bukkit.metadata.MetadataValue meta : player.getMetadata("chatprefix")) {
+                if (meta != null && meta.value() instanceof String) {
+                    String prefix = (String) meta.value();
+                    if (!prefix.trim().isEmpty()) {
+                        return cleanMinecraftFormatting(prefix);
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            // Игнорируем ошибки
+        }
+        
+        return "";
+    }
+    
+    /**
+     * Получает никнейм игрока
      */
     public static String getPlayerDisplayName(Player player) {
         try {
@@ -80,5 +190,14 @@ public class ChatFormatter {
             }
         }
         return false;
+    }
+    
+    /**
+     * Упрощенный метод для получения префикса (без зависимостей)
+     */
+    public static String getSimplePlayerPrefix(Player player) {
+        // Простая реализация без внешних зависимостей
+        // Можно расширить позже
+        return "";
     }
 }

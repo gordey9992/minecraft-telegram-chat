@@ -46,8 +46,8 @@ public class ChatListener implements Listener {
             return;
         }
         
-        // Получаем префикс игрока
-        String prefix = ChatFormatter.getPlayerPrefix(player);
+        // В методе onPlayerChat замените эту строку:
+        String prefix = ChatFormatter.getPlayerPrefix(player); // Должно быть так
         String playerName = ChatFormatter.getPlayerDisplayName(player);
         
         // Отправляем сообщение в Telegram

@@ -1,8 +1,8 @@
 package com.github.chatsync.managers;
 
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 public class ChatFormatter {
@@ -24,127 +24,136 @@ public class ChatFormatter {
     }
     
     /**
-     * Получает префикс игрока из EssentialsX или Vault
+     * Получает префикс игрока через LuckPerms API
      */
     public static String getPlayerPrefix(Player player) {
         try {
-            // Способ 1: Через Vault API (если установлен)
-            if (hasVault()) {
-                net.milkbowl.vault.chat.Chat chat = getVaultChat();
-                if (chat != null) {
-                    String prefix = chat.getPlayerPrefix(player);
-                    if (prefix != null && !prefix.trim().isEmpty()) {
-                        return cleanMinecraftFormatting(prefix);
-                    }
-                }
+            // Способ 1: LuckPerms API (самый надежный)
+            String luckPermsPrefix = getLuckPermsPrefix(player);
+            if (!luckPermsPrefix.isEmpty()) {
+                return luckPermsPrefix;
             }
             
-            // Способ 2: Через EssentialsX напрямую
-            if (hasEssentials()) {
-                // EssentialsX хранит префиксы в метаданных или конфигурации
-                // Попробуем получить из display name
-                String displayName = player.getDisplayName();
-                if (!displayName.equals(player.getName())) {
-                    // Если есть кастомный display name, может содержать префикс
-                    return extractPrefixFromDisplayName(displayName, player.getName());
-                }
+            // Способ 2: Из display name (резервный метод)
+            String displayNamePrefix = getPrefixFromDisplayName(player);
+            if (!displayNamePrefix.isEmpty()) {
+                return displayNamePrefix;
             }
             
-            // Способ 3: Из разрешений (LuckPerms и т.д.)
-            return getPrefixFromPermissions(player);
+            // Способ 3: Из метаданных
+            String metaPrefix = getPrefixFromMetadata(player);
+            if (!metaPrefix.isEmpty()) {
+                return metaPrefix;
+            }
             
         } catch (Exception e) {
-            // Если ничего не работает, возвращаем пустую строку
-            return "";
-        }
-    }
-    
-    /**
-     * Проверяет наличие Vault
-     */
-    private static boolean hasVault() {
-        try {
-            Class.forName("net.milkbowl.vault.chat.Chat");
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
-    }
-    
-    /**
-     * Получает Vault Chat provider
-     */
-    private static net.milkbowl.vault.chat.Chat getVaultChat() {
-        try {
-            org.bukkit.plugin.RegisteredServiceProvider<net.milkbowl.vault.chat.Chat> rsp = 
-                org.bukkit.Bukkit.getServer().getServicesManager().getRegistration(net.milkbowl.vault.chat.Chat.class);
-            return rsp != null ? rsp.getProvider() : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-    
-    /**
-     * Проверяет наличие EssentialsX
-     */
-    private static boolean hasEssentials() {
-        try {
-            Class.forName("com.earth2me.essentials.Essentials");
-            return org.bukkit.Bukkit.getPluginManager().getPlugin("Essentials") != null;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
-    }
-    
-    /**
-     * Извлекает префикс из display name
-     */
-    private static String extractPrefixFromDisplayName(String displayName, String playerName) {
-        String cleanDisplayName = cleanMinecraftFormatting(displayName);
-        String cleanPlayerName = cleanMinecraftFormatting(playerName);
-        
-        if (cleanDisplayName.contains(cleanPlayerName)) {
-            int nameIndex = cleanDisplayName.indexOf(cleanPlayerName);
-            if (nameIndex > 0) {
-                String potentialPrefix = cleanDisplayName.substring(0, nameIndex).trim();
-                // Убираем возможные скобки и пробелы
-                potentialPrefix = potentialPrefix.replaceAll("[\\[\\]()]", "").trim();
-                if (!potentialPrefix.isEmpty()) {
-                    return potentialPrefix;
-                }
-            }
+            // Игнорируем ошибки и возвращаем пустую строку
         }
         
         return "";
     }
     
     /**
-     * Получает префикс из системы разрешений
+     * Получает префикс через LuckPerms API
      */
-    private static String getPrefixFromPermissions(Player player) {
+    private static String getLuckPermsPrefix(Player player) {
         try {
-            // Проверяем метаданные игрока
-            for (org.bukkit.metadata.MetadataValue meta : player.getMetadata("prefix")) {
-                if (meta != null && meta.value() instanceof String) {
-                    String prefix = (String) meta.value();
-                    if (!prefix.trim().isEmpty()) {
-                        return cleanMinecraftFormatting(prefix);
-                    }
-                }
+            // Проверяем, установлен ли LuckPerms
+            net.luckperms.api.LuckPerms luckPerms = getLuckPerms();
+            if (luckPerms == null) {
+                return "";
             }
             
-            // Проверяем метаданные от плагинов
-            for (org.bukkit.metadata.MetadataValue meta : player.getMetadata("chatprefix")) {
-                if (meta != null && meta.value() instanceof String) {
-                    String prefix = (String) meta.value();
-                    if (!prefix.trim().isEmpty()) {
-                        return cleanMinecraftFormatting(prefix);
-                    }
-                }
+            // Получаем пользователя
+            net.luckperms.api.model.user.User user = luckPerms.getUserManager().getUser(player.getUniqueId());
+            if (user == null) {
+                return "";
+            }
+            
+            // Получаем префикс из контекста
+            net.luckperms.api.query.QueryOptions queryOptions = luckPerms.getContextManager().getQueryOptions(user).orElse(null);
+            if (queryOptions == null) {
+                return "";
+            }
+            
+            // Получаем метаданные
+            net.luckperms.api.cacheddata.CachedMetaData metaData = user.getCachedData().getMetaData(queryOptions);
+            String prefix = metaData.getPrefix();
+            
+            if (prefix != null && !prefix.trim().isEmpty()) {
+                return cleanMinecraftFormatting(prefix);
             }
             
         } catch (Exception e) {
+            // LuckPerms не доступен или произошла ошибка
+        }
+        
+        return "";
+    }
+    
+    /**
+     * Получает экземпляр LuckPerms
+     */
+    private static net.luckperms.api.LuckPerms getLuckPerms() {
+        try {
+            return org.bukkit.Bukkit.getServicesManager().getRegistration(net.luckperms.api.LuckPerms.class).getProvider();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
+    /**
+     * Извлекает префикс из display name
+     */
+    private static String getPrefixFromDisplayName(Player player) {
+        try {
+            String displayName = player.getDisplayName();
+            String playerName = player.getName();
+            
+            if (!displayName.equals(playerName)) {
+                String cleanDisplayName = cleanMinecraftFormatting(displayName);
+                String cleanPlayerName = cleanMinecraftFormatting(playerName);
+                
+                if (cleanDisplayName.contains(cleanPlayerName)) {
+                    int nameIndex = cleanDisplayName.indexOf(cleanPlayerName);
+                    if (nameIndex > 0) {
+                        String potentialPrefix = cleanDisplayName.substring(0, nameIndex).trim();
+                        // Убираем возможные скобки и пробелы
+                        potentialPrefix = potentialPrefix.replaceAll("[\\[\\]()]", "").trim();
+                        if (!potentialPrefix.isEmpty() && potentialPrefix.length() <= 15) {
+                            return potentialPrefix;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
             // Игнорируем ошибки
+        }
+        
+        return "";
+    }
+    
+    /**
+     * Получает префикс из метаданных
+     */
+    private static String getPrefixFromMetadata(Player player) {
+        try {
+            // Проверяем различные ключи метаданных, которые могут содержать префикс
+            String[] metaKeys = {"prefix", "chatprefix", "tag", "chattag", "essentials_prefix", "luckperms_prefix"};
+            
+            for (String key : metaKeys) {
+                for (org.bukkit.metadata.MetadataValue meta : player.getMetadata(key)) {
+                    if (meta != null && meta.value() instanceof String) {
+                        String prefix = (String) meta.value();
+                        String cleanPrefix = cleanMinecraftFormatting(prefix).trim();
+                        if (!cleanPrefix.isEmpty()) {
+                            return cleanPrefix;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Игнорируем ошибки метаданных
         }
         
         return "";
@@ -180,7 +189,7 @@ public class ChatFormatter {
     /**
      * Проверяет, содержит ли сообщение запрещенные слова
      */
-    public static boolean containsBannedWords(String message, java.util.List<String> bannedWords) {
+    public static boolean containsBannedWords(String message, List<String> bannedWords) {
         if (bannedWords == null || bannedWords.isEmpty()) return false;
         
         String cleanMessage = message.toLowerCase();
@@ -190,14 +199,5 @@ public class ChatFormatter {
             }
         }
         return false;
-    }
-    
-    /**
-     * Упрощенный метод для получения префикса (без зависимостей)
-     */
-    public static String getSimplePlayerPrefix(Player player) {
-        // Простая реализация без внешних зависимостей
-        // Можно расширить позже
-        return "";
     }
 }
